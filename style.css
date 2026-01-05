@@ -1,0 +1,110 @@
+body {
+    margin: 0;
+    padding: 0;
+    background-color: #111;
+    overflow: hidden;
+    touch-action: none; /* Prevents zooming/scrolling on phone */
+    font-family: 'Courier New', monospace;
+}
+
+#game-container {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+canvas {
+    background-color: #2e8b57; /* Grass Green */
+    border: 2px solid #444;
+    box-shadow: 0 0 20px rgba(0,0,0,0.5);
+    max-width: 100%;
+    max-height: 100%;
+}
+
+#ui-layer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none; /* Let touches pass through to buttons */
+}
+
+#party-status {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    background: rgba(0, 0, 0, 0.7);
+    padding: 10px;
+    border-radius: 8px;
+    color: white;
+    width: 200px;
+}
+
+.status-row {
+    display: flex;
+    align-items: center;
+    margin-bottom: 5px;
+    font-size: 14px;
+}
+
+.hp-bar {
+    flex-grow: 1;
+    height: 6px;
+    background: #444;
+    margin-left: 8px;
+    border-radius: 3px;
+}
+
+#player-hp-fill { background: #3b82f6; width: 100%; height: 100%; }
+#merc-hp-fill { background: #a855f7; width: 100%; height: 100%; }
+#merc-action { font-size: 10px; color: #ccc; margin-top: 2px; text-align: right; }
+
+/* CONTROLS */
+#controls {
+    position: absolute;
+    bottom: 20px;
+    left: 20px;
+    right: 20px;
+    height: 150px;
+    pointer-events: auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+}
+
+.d-pad {
+    display: grid;
+    grid-template-columns: 50px 50px 50px;
+    grid-template-rows: 50px 50px;
+    gap: 5px;
+}
+
+button {
+    background: rgba(255, 255, 255, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    color: white;
+    font-size: 20px;
+    border-radius: 8px;
+    touch-action: manipulation;
+}
+
+button:active { background: rgba(255, 255, 255, 0.5); }
+
+#btn-up { grid-column: 2; grid-row: 1; }
+#btn-left { grid-column: 1; grid-row: 2; }
+#btn-down { grid-column: 2; grid-row: 2; }
+#btn-right { grid-column: 3; grid-row: 2; }
+
+#btn-attack {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    background: rgba(220, 38, 38, 0.8); /* Red */
+    border: 4px solid #7f1d1d;
+    font-size: 30px;
+    margin-bottom: 10px;
+}
