@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Ember's Ascent: 2D Edition</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div id="game-container">
+        <canvas id="gameCanvas"></canvas>
+
+        <div id="ui-layer">
+            <div id="party-status">
+                <div class="status-row">
+                    <span class="icon">🛡️</span> <span id="player-name">Hero</span> <div class="hp-bar"><div id="player-hp-fill"></div></div>
+                </div>
+                <div class="status-row">
+                    <span class="icon">💜</span> <span id="merc-name">Merc</span> <div class="hp-bar"><div id="merc-hp-fill"></div></div>
+                </div>
+                <div id="merc-action">Action: Idle</div>
+            </div>
+
+            <div id="controls">
+                <div class="d-pad">
+                    <button id="btn-up">▲</button>
+                    <button id="btn-left">◀</button>
+                    <button id="btn-down">▼</button>
+                    <button id="btn-right">▶</button>
+                </div>
+                <button id="btn-attack">⚔️</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
