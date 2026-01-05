@@ -3,249 +3,279 @@
 // ==========================================
 const CANVAS_WIDTH = 800;
 const CANVAS_HEIGHT = 600;
+const WORLD_SIZE = 2000; // The world is now HUGE
 const TILE_SIZE = 32;
 
 // ==========================================
-// 💾 STATE & STORAGE
+// 💾 GAME STATE
 // ==========================================
 const GameState = {
-    player: { x: 400, y: 300, hp: 100, maxHp: 100, speed: 4, name: "Hero" },
-    mercenary: { x: 350, y: 350, class: "Healer", action: "Idle", lastAction: 0 },
+    player: { 
+        x: 1000, y: 1000, // Start in middle of big world
+        hp: 100, maxHp: 100, 
+        xp: 0, maxXp: 100, level: 1,
+        speed: 5, name: "Hero", gold: 0 
+    },
+    mercenary: { x: 950, y: 950, class: "Healer", action: "Idle", lastAction: 0 },
     enemies: [],
-    particles: [], // Floating damage numbers
-    keys: {} // Keyboard input
+    loot: [],      // Items on the ground
+    particles: [], // Damage numbers
+    scenery: [],   // Trees and rocks
+    keys: {}
 };
 
-// Load saved game if exists
-const savedData = localStorage.getItem('ember_save');
-if (savedData) {
-    const parsed = JSON.parse(savedData);
-    GameState.player = parsed.player;
-    // We reset enemies on reload to avoid bugs
+// ==========================================
+// 🌲 WORLD GENERATION
+// ==========================================
+function initWorld() {
+    // 1. Generate Scenery (Trees & Rocks)
+    for(let i=0; i<100; i++) {
+        GameState.scenery.push({
+            x: Math.random() * WORLD_SIZE,
+            y: Math.random() * WORLD_SIZE,
+            type: Math.random() > 0.8 ? 'rock' : 'tree',
+            size: 20 + Math.random() * 40
+        });
+    }
+
+    // 2. Spawn Initial Enemies
+    for(let i=0; i<10; i++) spawnEnemy();
 }
 
-// Spawn some enemies
-function spawnEnemies() {
-    GameState.enemies = [
-        { id: 1, x: 200, y: 200, hp: 50, maxHp: 50, name: "Goblin", color: "#ef4444" },
-        { id: 2, x: 600, y: 150, hp: 80, maxHp: 80, name: "Orc", color: "#b91c1c" },
-        { id: 3, x: 400, y: 500, hp: 30, maxHp: 30, name: "Rat", color: "#713f12" }
+function spawnEnemy() {
+    // Spawn random enemy type
+    const types = [
+        { name: "Goblin", hp: 30, color: "#ef4444", xp: 20 },
+        { name: "Orc", hp: 60, color: "#b91c1c", xp: 40 },
+        { name: "Spider", hp: 20, color: "#000", xp: 10 }
     ];
+    const type = types[Math.floor(Math.random() * types.length)];
+    
+    // Spawn away from player
+    let ex, ey;
+    do {
+        ex = Math.random() * WORLD_SIZE;
+        ey = Math.random() * WORLD_SIZE;
+    } while (Math.hypot(ex - GameState.player.x, ey - GameState.player.y) < 400);
+
+    GameState.enemies.push({
+        id: Date.now() + Math.random(),
+        x: ex, y: ey,
+        hp: type.hp, maxHp: type.hp,
+        name: type.name, color: type.color, xp: type.xp
+    });
 }
-spawnEnemies();
 
 // ==========================================
-// 🧠 MERCENARY AI (The "EQ Brain")
+// 🧠 LOGIC & AI
 // ==========================================
 function updateMercenary() {
-    const merc = GameState.mercenary;
-    const player = GameState.player;
-    const enemies = GameState.enemies;
+    const m = GameState.mercenary;
+    const p = GameState.player;
     const now = Date.now();
+    const dist = Math.hypot(m.x - p.x, m.y - p.y);
 
-    const DIST_LEASH = 120; // If farther, run to player
-    const DIST_CAST = 150;  // Range to heal/nuke
-    const DIST_MELEE = 40;  
-    
-    // 1. LEASH CHECK (Priority #1)
-    const distToPlayer = Math.hypot(merc.x - player.x, merc.y - player.y);
-    if (distToPlayer > DIST_LEASH) {
-        const angle = Math.atan2(player.y - merc.y, player.x - merc.x);
-        merc.x += Math.cos(angle) * 3; // Merc runs fast
-        merc.y += Math.sin(angle) * 3;
-        merc.action = "Following";
+    // 1. Follow Player (Leash)
+    if (dist > 150) {
+        const angle = Math.atan2(p.y - m.y, p.x - m.x);
+        m.x += Math.cos(angle) * 4;
+        m.y += Math.sin(angle) * 4;
+        m.action = "Following";
         return;
     }
 
-    // 2. HEALER LOGIC (Priority #2)
-    if (merc.class === "Healer" && now - merc.lastAction > 2500) {
-        // Heal Player if hurt
-        if (player.hp < player.maxHp * 0.7) {
-            player.hp = Math.min(player.maxHp, player.hp + 20);
-            createParticle(player.x, player.y, "+20", "#22c55e"); // Green Text
-            merc.action = "Casting Heal";
-            merc.lastAction = now;
-            return;
-        }
+    // 2. Auto-Heal
+    if (now - m.lastAction > 2000 && p.hp < p.maxHp * 0.6) {
+        p.hp = Math.min(p.maxHp, p.hp + 30);
+        createParticle(p.x, p.y, "+30 HP", "#4ade80");
+        m.action = "Heal!";
+        m.lastAction = now;
+        return;
     }
 
-    // 3. COMBAT ASSIST (Priority #3)
-    // Find closest enemy
-    let target = null;
-    let minDist = 9999;
-    
-    enemies.forEach(e => {
-        const d = Math.hypot(e.x - merc.x, e.y - merc.y);
-        if (d < minDist) { minDist = d; target = e; }
-    });
-
-    if (target && minDist < 200) {
-        // If Healer, stay back. If Warrior, charge in.
-        if (minDist > DIST_MELEE) {
-            const angle = Math.atan2(target.y - merc.y, target.x - merc.x);
-            merc.x += Math.cos(angle) * 2;
-            merc.y += Math.sin(angle) * 2;
-            merc.action = "Chasing";
-        } else {
-            // Attack logic would go here
-            merc.action = "Fighting";
+    // 3. Combat Assist
+    let target = GameState.enemies.find(e => Math.hypot(e.x - m.x, e.y - m.y) < 200);
+    if (target) {
+        // Move to target
+        const angle = Math.atan2(target.y - m.y, target.x - m.x);
+        m.x += Math.cos(angle) * 3;
+        m.y += Math.sin(angle) * 3;
+        m.action = "Attacking!";
+        
+        // Attack
+        if (now - m.lastAction > 1000 && Math.hypot(target.x - m.x, target.y - m.y) < 50) {
+            target.hp -= 10;
+            createParticle(target.x, target.y, "10", "#a855f7");
+            m.lastAction = now;
         }
     } else {
-        merc.action = "Idle";
+        m.action = "Idle";
     }
 }
 
-// ==========================================
-// ⚔️ COMBAT SYSTEM
-// ==========================================
 function playerAttack() {
-    const p = GameState.player;
-    let hitSomething = false;
-
+    let hit = false;
     GameState.enemies.forEach(e => {
-        const dist = Math.hypot(e.x - p.x, e.y - p.y);
-        if (dist < 60) {
-            // HIT!
-            const dmg = Math.floor(Math.random() * 10) + 5;
+        if (Math.hypot(e.x - GameState.player.x, e.y - GameState.player.y) < 80) {
+            const dmg = 15 + Math.floor(Math.random() * 10);
             e.hp -= dmg;
-            createParticle(e.x, e.y, `-${dmg}`, "#fff");
-            hitSomething = true;
+            createParticle(e.x, e.y, dmg, "#fff");
+            hit = true;
         }
     });
 
-    // Remove dead enemies
+    // Clean up dead enemies & Drop Loot
     GameState.enemies = GameState.enemies.filter(e => {
         if (e.hp <= 0) {
-            createParticle(e.x, e.y, "DEAD", "#ffff00");
+            // Drop Gold
+            GameState.loot.push({ x: e.x, y: e.y, val: 5 + Math.floor(Math.random()*10) });
+            // Gain XP
+            gainXp(e.xp);
             return false;
         }
         return true;
     });
 
-    if (GameState.enemies.length === 0) {
-        setTimeout(spawnEnemies, 3000); // Respawn after 3s
+    if (GameState.enemies.length < 5) spawnEnemy(); // Always keep enemies spawning
+}
+
+function gainXp(amount) {
+    const p = GameState.player;
+    p.xp += amount;
+    createParticle(p.x, p.y - 40, `+${amount} XP`, "#fbbf24");
+    
+    if (p.xp >= p.maxXp) {
+        p.level++;
+        p.xp = 0;
+        p.maxXp = Math.floor(p.maxXp * 1.5);
+        p.maxHp += 20;
+        p.hp = p.maxHp;
+        createParticle(p.x, p.y - 60, "LEVEL UP!", "#fbbf24");
     }
 }
 
+function checkLoot() {
+    const p = GameState.player;
+    GameState.loot = GameState.loot.filter(item => {
+        if (Math.hypot(item.x - p.x, item.y - p.y) < 40) {
+            p.gold += item.val;
+            createParticle(p.x, p.y, `+${item.val}g`, "#facc15");
+            return false; // Remove from ground
+        }
+        return true;
+    });
+}
+
 function createParticle(x, y, text, color) {
-    GameState.particles.push({ x, y, text, color, life: 30 });
+    GameState.particles.push({ x, y, text, color, life: 60 });
 }
 
 // ==========================================
-// 🎮 ENGINE LOOP
+// 🎨 RENDER ENGINE (The Camera System)
 // ==========================================
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
+canvas.width = CANVAS_WIDTH; 
+canvas.height = CANVAS_HEIGHT;
 
-// Resize canvas to fit screen
-function resize() {
-    canvas.width = CANVAS_WIDTH;
-    canvas.height = CANVAS_HEIGHT;
-}
-resize();
+initWorld(); // Start the world generation
 
-function update() {
+function loop() {
+    // 1. Update Physics
     const p = GameState.player;
-
-    // Movement
     if (GameState.keys['ArrowUp']) p.y -= p.speed;
     if (GameState.keys['ArrowDown']) p.y += p.speed;
     if (GameState.keys['ArrowLeft']) p.x -= p.speed;
     if (GameState.keys['ArrowRight']) p.x += p.speed;
-
-    // Boundary Checks
-    p.x = Math.max(0, Math.min(CANVAS_WIDTH - TILE_SIZE, p.x));
-    p.y = Math.max(0, Math.min(CANVAS_HEIGHT - TILE_SIZE, p.y));
-
-    // AI
+    
     updateMercenary();
+    checkLoot();
 
-    // Particles
+    // 2. Draw World (Camera Logic)
+    ctx.fillStyle = "#111"; 
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    
+    ctx.save();
+    // CAMERA MAGIC: Move the entire world so player is in center
+    ctx.translate(-p.x + CANVAS_WIDTH/2, -p.y + CANVAS_HEIGHT/2);
+
+    // Draw Ground
+    ctx.fillStyle = "#22c55e";
+    ctx.fillRect(0, 0, WORLD_SIZE, WORLD_SIZE);
+
+    // Draw Scenery
+    GameState.scenery.forEach(s => {
+        ctx.fillStyle = s.type === 'tree' ? "#14532d" : "#57534e";
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.size, 0, Math.PI*2);
+        ctx.fill();
+    });
+
+    // Draw Loot
+    GameState.loot.forEach(l => {
+        ctx.fillStyle = "#facc15"; // Gold color
+        ctx.fillRect(l.x - 10, l.y - 10, 20, 20);
+    });
+
+    // Draw Units
+    ctx.fillStyle = "#3b82f6"; // Player
+    ctx.fillRect(p.x-16, p.y-16, 32, 32);
+    
+    ctx.fillStyle = "#a855f7"; // Merc
+    ctx.fillRect(GameState.mercenary.x-16, GameState.mercenary.y-16, 32, 32);
+
+    GameState.enemies.forEach(e => {
+        ctx.fillStyle = e.color;
+        ctx.fillRect(e.x-16, e.y-16, 32, 32);
+        // Enemy HP Bar
+        ctx.fillStyle = "red";
+        ctx.fillRect(e.x-16, e.y-25, 32, 5);
+        ctx.fillStyle = "#22c55e";
+        ctx.fillRect(e.x-16, e.y-25, 32 * (e.hp/e.maxHp), 5);
+    });
+
+    // Draw Particles (Floating Text)
+    ctx.font = "bold 20px Courier New";
     GameState.particles.forEach(part => {
-        part.y -= 1; // Float up
-        part.life--;
+        ctx.fillStyle = part.color;
+        ctx.fillText(part.text, part.x, part.y);
+        part.y -= 1; part.life--;
     });
     GameState.particles = GameState.particles.filter(p => p.life > 0);
 
-    // Update UI
-    document.getElementById('player-hp-fill').style.width = (p.hp / p.maxHp * 100) + '%';
-    document.getElementById('merc-hp-fill').style.width = (100) + '%'; // Merc invincible for now
-    document.getElementById('merc-action').innerText = GameState.mercenary.action;
+    ctx.restore(); // End Camera
 
-    // Auto-Save every 5 seconds (optional, disabled for speed loop)
-    // localStorage.setItem('ember_save', JSON.stringify(GameState));
-}
-
-function draw() {
-    // Clear Screen
-    ctx.fillStyle = "#111827";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // Draw Grass
-    ctx.fillStyle = "#22c55e";
-    ctx.fillRect(50, 50, 700, 500);
-
-    // Draw Player (Blue)
-    ctx.fillStyle = "#3b82f6";
-    ctx.fillRect(GameState.player.x, GameState.player.y, TILE_SIZE, TILE_SIZE);
-
-    // Draw Merc (Purple)
-    ctx.fillStyle = "#a855f7";
-    const m = GameState.mercenary;
-    ctx.fillRect(m.x, m.y, TILE_SIZE, TILE_SIZE);
-
-    // Draw Enemies (Red)
-    GameState.enemies.forEach(e => {
-        ctx.fillStyle = e.color;
-        ctx.fillRect(e.x, e.y, TILE_SIZE, TILE_SIZE);
-        // HP Bar
-        ctx.fillStyle = "black";
-        ctx.fillRect(e.x, e.y - 8, TILE_SIZE, 4);
-        ctx.fillStyle = "red";
-        ctx.fillRect(e.x, e.y - 8, TILE_SIZE * (e.hp / e.maxHp), 4);
-    });
-
-    // Draw Particles
-    ctx.font = "bold 16px Courier New";
-    GameState.particles.forEach(p => {
-        ctx.fillStyle = p.color;
-        ctx.fillText(p.text, p.x, p.y);
-    });
-}
-
-function loop() {
-    update();
-    draw();
+    // 3. Draw UI (Static on screen)
+    document.getElementById('player-hp-fill').style.width = (p.hp/p.maxHp*100) + '%';
+    document.getElementById('player-name').innerText = `${p.name} (Lvl ${p.level})`;
+    document.getElementById('merc-action').innerText = `XP: ${p.xp}/${p.maxXp} | Gold: ${p.gold}`;
+    
     requestAnimationFrame(loop);
 }
 
-// Start
-loop();
-
 // ==========================================
-// 🕹️ INPUT HANDLING
+// 🕹️ CONTROLS
 // ==========================================
-
-// Keyboard
 window.addEventListener('keydown', e => GameState.keys[e.key] = true);
 window.addEventListener('keyup', e => GameState.keys[e.key] = false);
 
-// Touch Controls (Connect Buttons to Keys)
-const btnMap = {
-    'btn-up': 'ArrowUp', 'btn-down': 'ArrowDown', 
-    'btn-left': 'ArrowLeft', 'btn-right': 'ArrowRight'
-};
-
+const btnMap = {'btn-up':'ArrowUp', 'btn-down':'ArrowDown', 'btn-left':'ArrowLeft', 'btn-right':'ArrowRight'};
 Object.keys(btnMap).forEach(id => {
     const btn = document.getElementById(id);
-    btn.addEventListener('touchstart', (e) => { e.preventDefault(); GameState.keys[btnMap[id]] = true; });
-    btn.addEventListener('touchend', (e) => { e.preventDefault(); GameState.keys[btnMap[id]] = false; });
-    // Mouse fallback for PC testing
-    btn.addEventListener('mousedown', () => GameState.keys[btnMap[id]] = true);
-    btn.addEventListener('mouseup', () => GameState.keys[btnMap[id]] = false);
+    if(btn) {
+        btn.addEventListener('touchstart', (e)=>{e.preventDefault(); GameState.keys[btnMap[id]]=true;});
+        btn.addEventListener('touchend', (e)=>{e.preventDefault(); GameState.keys[btnMap[id]]=false;});
+        // Mouse support for testing
+        btn.addEventListener('mousedown', ()=>{GameState.keys[btnMap[id]]=true;});
+        btn.addEventListener('mouseup', ()=>{GameState.keys[btnMap[id]]=false;});
+    }
 });
 
-// Attack Button
 const atkBtn = document.getElementById('btn-attack');
-atkBtn.addEventListener('touchstart', (e) => { e.preventDefault(); playerAttack(); });
-atkBtn.addEventListener('mousedown', () => playerAttack());
+if(atkBtn) {
+    atkBtn.addEventListener('touchstart', (e)=>{e.preventDefault(); playerAttack();});
+    atkBtn.addEventListener('mousedown', ()=>{playerAttack();});
+}
+
+loop();
+
